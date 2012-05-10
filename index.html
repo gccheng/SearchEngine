@@ -1,0 +1,65 @@
+<HTML>
+<HEAD>
+<TITLE>Search Engine Test Interface</TITLE>
+
+<script type="text/javascript">
+function reviewInput(f){
+	var q = f.QUERY_0.value.length;
+	if (q<1){
+		alert("Empty query!");
+		return false;
+	}
+	return true;
+}
+</script>
+
+</HEAD>
+
+<BODY BGCOLOR="#FFFFFF" TEXT="#000000" VLINK="#0000FF" ALINK="#000000" LINK="#CC0033">
+<BR><BR>
+<DIV ALIGN="CENTER">
+
+<FORM ENCTYPE="multipart/form-data" METHOD="POST" NAME="queryForm" ACTION="cgi-bin/testquery.cgi">
+
+<TABLE WIDTH="600" BORDER="0" CELLPADDING="10" CELLSPACING="5">
+	<TR>
+		<TH WIDTH="250" ALIGN="RIGHT">
+			<FONT SIZE="5" COLOR=BLACK FACE="ARIAL,HELVETICA">Search</FONT>
+		</TH>
+		<TH WIDTH="100" ALIGN="CENTER">
+			<img border="0" src="res/green-eagle.gif" alt="Search UNT" height="100" /> 
+		</TH>
+		<TH  WIDTH="250" ALIGN="LEFT">
+			<FONT SIZE="5" COLOR=BLACK FACE="ARIAL,HELVETICA">UNT</FONT>
+		</TH>
+	</TR>
+
+	<TR>
+	       <TD COLSPAN="3"><FONT SIZE="-1" FACE="ARIAL,HELVETICA"></TD>
+	</TR>
+
+	<TR>
+		<TD COLSPAN="3" ALIGN="center"><FONT SIZE="-1" FACE="ARIAL,HELVETICA">
+			<INPUT NAME="QUERY_0" SIZE="50" MAXLENGTH="100">
+			<INPUT TYPE="SUBMIT" VALUE="Search" onClick="return reviewInput(document.queryForm);">
+		</TD>
+	</TR>
+	
+	<TR>
+		<TD COLSPAN="3" ALIGN="CENTER">
+		<FONT SIZE="-1" FACE="ARIAL,HELVETICA">
+		<!-- BEGIN FOOTER -->
+		<HR SIZE="1" NOSHADE>
+		<P ALIGN="CENTER">
+			<A HREF="https://sites.google.com/site/chengguangchun/" style="text-decoration:none" >Guangchun Cheng @ University of North Texas</A> <BR>
+			<A HREF="http://www.cse.unt.edu/~rada/CSCE5200/" style="text-decoration:none" >A Course Project</A>
+		</P> 
+		</FONT>
+		</TD>
+	</TR>
+</TABLE>
+</FORM>
+
+</DIV>
+</BODY>
+</HTML>

@@ -1,0 +1,245 @@
+#! /usr/bin/perl -w
+# Test program for project of class CSCE 5200.001: Information Retrieval
+# and Web Search. 
+# This file is an interface for a simple web search engine.
+#
+# Author: Guangchun Cheng
+# Email: guangchuncheng@my.unt.edu
+
+use strict;
+use warnings;
+use POSIX;
+use PreProc;
+use WordFreq;
+use Utility;
+use Crawler;
+use Retrieval;
+use PageRank;
+
+use Storable;
+
+
+if ($#ARGV != 0){
+	print "usage: SearchEngine query\n\n";
+	exit;
+}
+my $querystring = $ARGV[0];  #query string
+
+# Configurations
+my $bUpdateWebpages = 0;
+my $bRemoveStopwords = 1;
+my $bSteming = 1;
+
+my $dirDocs = "webpages";
+my $FileUrlCorrespond = "file-url.txt";
+my $pagerank_scores = "rank_scores.txt";
+my $numOfDiaplay = 3000;	# maximum number of pages to display
+
+my %indexInverted = ();
+my %lengthTotal = ();
+my %maxTFs = ();
+my %page_rank = ();
+my %PageId_URL = ();
+
+# update webpages
+# pageid-url corresondences will be save in $FileUrlCorrespond
+unless (-e $dirDocs){
+	&updateWebpages("http://www.unt.edu", "unt.edu", 3000, "./urls.txt", $dirDocs, $FileUrlCorrespond, 0);
+}
+
+# load inverted index
+if (-e 'indexInverted.dat'){
+	%indexInverted = %{retrieve 'indexInverted.dat'};
+	%lengthTotal = %{retrieve 'lengthTotal.dat'};
+	%maxTFs = %{retrieve 'maxTFs.dat'};
+}else{
+	&vectorSearchEngine($dirDocs, \%maxTFs, \%lengthTotal, \%indexInverted);
+	&store(\%indexInverted, 'indexInverted.dat');
+	&store(\%lengthTotal, 'lengthTotal.dat');
+	&store(\%maxTFs, 'maxTFs.dat');
+}
+
+# load pageid-url correspondences	
+open FILEURL, "<$FileUrlCorrespond";
+(-r FILEURL) || die "Cannot open File-URLs file $FileUrlCorrespond\n";
+while (my $line = <FILEURL>){
+	chomp($line);
+	$line =~ m/(\d+)\W+(.+)/g;
+	my $pageid = $1; my $Url = $2;
+	$PageId_URL{$pageid} = $Url;
+}
+close FILEURL;
+
+# obtain score of each page using TF-IDF
+my %page_scores = &search($querystring, \%maxTFs, \%lengthTotal, \%indexInverted, $numOfDiaplay);
+
+# obtain page scores using PageRank
+if (-e $pagerank_scores){
+	%page_rank = &loadPageRank($pagerank_scores);
+}else{
+	&updatePageRank($dirDocs, $FileUrlCorrespond, $pagerank_scores);
+	%page_rank = &loadPageRank($pagerank_scores);
+}
+
+# final results
+my %DisplayResults = ();
+my $min_pagescore = minx values %DisplayResults;
+my $max_pagescore = maxx values %DisplayResults;
+my $index = 2;
+foreach my $pageid (sort {$page_scores{$b} <=> $page_scores{$a}} keys %page_scores){
+	$DisplayResults{$pageid} = 0.5*log($page_scores{$pageid}+1);#-$min_pagescore)/($max_pagescore-$min_pagescore);
+	if (exists($page_rank{$pageid})){
+		 $DisplayResults{$pageid} += 0.5*$page_rank{$pageid}/log(5*$index);
+	}
+	$index = $index + 1;
+}
+
+foreach my $disp_id (sort {$DisplayResults{$b}<=>$DisplayResults{$a}} (keys %DisplayResults)){
+	my $pageurl = $PageId_URL{$disp_id};
+	my $pagescore = $DisplayResults{$disp_id};
+	print "$pageurl\n";
+	print "$pagescore\n";
+
+	open WEBPAGE, "<$dirDocs/$disp_id.txt";
+	(-r WEBPAGE) || die "Cannot read webpage $disp_id.txt\n";
+
+	my $pagecontent="";
+	while (my $line = <WEBPAGE>){
+		$pagecontent = $pagecontent.$line;
+	}
+	close PAGE_RANK;
+	$pagecontent =~ m/<title>(.+)<\/title>/i;
+	print "$1\n";	
+}
+
+### Retrieve results given query.
+# @Arguments
+#	$_[0]: query from users
+#	$_[1]: reference to a hashtable of max TF of each document
+#	$_[2]: reference to a hashtable of the length of each document
+#	$_[3]: reference to a hashtable of inverted index data structure
+#	$_[4]: number of pages for display
+# %Return
+#	%page_scores: scores of pages using TF-IDF
+sub search{
+	my ($query, $refMaxTFs, $refLengthTotal, $refIndexInverted, $numOfDiaplay) = @_;
+	my %page_scores = ();
+	my %scores = &computeSimilarity(\%indexInverted, \%lengthTotal, \%maxTFs, $query, "t", "f", "c", 
+						"t", "f", "STEM", "SPWD");
+	my $ind = 0;
+	open RANKFILE, ">search_result.txt";
+	(-w RANKFILE) || die "Cannot write to file search_result.txt\n";
+	foreach my $page (sort {$scores{$b} <=> $scores{$a}} (keys %scores)){
+		# extract document_id
+		$page =~ m/(\d+)\.txt$/;
+		my $fileid = $1;
+		print RANKFILE "$fileid\n";
+	
+		if ($ind<$numOfDiaplay){
+			$page_scores{$fileid} = $scores{$page};
+		}
+		$ind++;
+	}
+	
+	return %page_scores;
+}
+
+### Establish vectorial-space based search engine.
+# @Arguments
+#	$_[0]: directory of document(webpage) collection
+#	$_[1]: reference to a hashtable of max TF of each document
+#	$_[2]: reference to a hashtable of the length of each document
+#	$_[3]: reference to a hashtable of inverted index data structure
+sub vectorSearchEngine{
+	my ($dirDocs, $refMaxTFs, $refLengthTotal, $refIndexInverted)=@_;
+
+	# construct inverted index (hash of hashes)
+	%{$refIndexInverted} = &constructInvertedIndex($dirDocs, $refMaxTFs, "STEM", "SPWD");
+	print "TF-IDF: inverted index constructed.\n";
+
+	# compute document length
+	%{$refLengthTotal} = &computeDocLength($dirDocs, \%indexInverted, \%maxTFs, "t", "f", "STEM", "SPWD");
+	print "TF-IDF: document lengths computed.\n";
+}
+
+
+### Start with $rootURL, the function gCrawler() will retrieve all the URLs in a
+### Breadth-first manner, recursively. The results are restricted within the domain
+### %domain, and saved to file $saveUrlFile if provided. Webpages are temporally 
+### saved to $pageFolder. If $ pageFolder is not present, "./tmp" will hold these
+### webpages, which will be deleted at the end.
+# @Arguments
+# 	$_[0]:	the starting URL
+# 	$_[1]:	the restricted domain
+#	$_[2]:	number of URLs to retrieve
+# 	$_[3]:	file name for storing URLs
+# 	$_[4]:	folder name for storing webpages
+#	$_[5]:	file of webpage fileid-url correspondence
+#	$_[6]:	if print processing steps to screen
+sub updateWebpages{
+	my ($rootURL, $domain, $number, $saveUrlFile, $dirPages, $FileUrlCorrespond, $printProcess) = @_;
+	#my $rootURL = "http://www.unt.edu";	# start/root URL
+	#my $domain = "unt.edu";		# domain to search
+	#my $number = 3000;			# number of URLs to retrieve
+	#my $saveUrlFile = "./urls.txt";	# file saving results
+	#my $dirPages = "webpages";		# directory saving downloaded pages
+	#my $printProcess = 0;			# if print processing steps to screen (0-1)
+
+	# remove existing webpages and the directory
+	if (-e $dirPages){
+		system("rm $dirPages/*");
+		system("rmdir $dirPages");
+	}
+
+	print "Downloading and analysing webpages...";
+	my %URLs = &gCrawler($rootURL, $domain, $number, $saveUrlFile,$dirPages, $printProcess, $FileUrlCorrespond);
+	my $numURLs = keys %URLs;
+	print "[$numURLs pages analysed]\n";
+}
+
+### Using the webpage collection and the fileid-url correpondence, this function
+### gives the PageRank score of each page in the collection.
+# @Arguments
+# 	$_[0]: directory of document(webpage) collection
+# 	$_[1]: file of webpage file id - url correspondence
+#	$_[2]: file to save the rank scores
+sub updatePageRank{
+	my ($dirDocs, $fileid_url, $rank_scores) = @_;
+
+	my %Scores = &pageRank($dirDocs, $fileid_url);
+
+	open RANKSCORE, ">$rank_scores";
+	(-w RANKSCORE) || die "Error: couldn't create file to save PageRank scores!\n";
+
+	my $t = 0;
+	foreach my $key (sort {$Scores{$b} <=> $Scores{$a} } keys %Scores){
+		my $score = log($Scores{$key}+1);
+		print RANKSCORE "$key\t$score\n";
+	}
+
+	close RANKSCORE;
+}
+
+
+### Load PageRank scores from file
+# @Arguments
+#	$_[0]: file containing the PageRank scores
+# %Return
+#	%page_rank: a hash of {fileid=>score}
+sub loadPageRank{
+	my $fileRankScores = $_[0];
+	my %page_rank = ();
+	
+	# read in file-url correspondences	
+	open PAGE_RANK, "<$fileRankScores";
+	(-r PAGE_RANK) || die "Cannot open page-rank file $fileRankScores\n";
+	while (my $line = <PAGE_RANK>){
+		chomp($line);
+		$line =~ m/(\d+)\W+(.+)/g;
+		my $fileid = $1; my $score = $2;
+		$page_rank{$fileid} = $score;
+	}
+	close PAGE_RANK;
+
+	return %page_rank;
+}
